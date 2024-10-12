@@ -1,6 +1,7 @@
 "use client";
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
@@ -9,9 +10,12 @@ export default function Header() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <header className="bg-gradient-to-r from-pink-500 to-purple-600 dark:from-pink-800 dark:to-black text-white p-4">
+    <header className="bg-gradient-to-r from-pink-500 to-purple-600 dark:from-pink-800 dark:to-black text-white p-3">
       <div className="container mx-auto flex justify-between items-center">
-        <Link href="/" className="text-2xl font-bold">ScreenShot Organizer</Link>
+        <Link href="/" className="flex items-center">
+          <Image src="/logo.png" alt="ScreenShot Organizer Logo" width={50} height={50} className="mr-2" />
+          <span className="text-xl font-bold">ScreenShot Organizer</span>
+        </Link>
         <nav>
           <ul className="flex space-x-4">
             <li><Link href="/demo">Demo</Link></li>
