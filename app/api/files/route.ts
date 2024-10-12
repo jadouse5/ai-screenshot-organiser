@@ -1,11 +1,13 @@
 import { NextResponse, NextRequest } from "next/server";
-import PinataSDK from '@pinata/sdk';
+import { PinataSDK } from "pinata";
 
-const pinata = new PinataSDK({ pinataJWTKey: process.env.PINATA_JWT_KEY });
+const pinata = new PinataSDK({
+  pinataJwt: process.env.PINATA_JWT!,
+});
 
-export const runtime = 'nodejs'; // Changed from 'edge' due to Pinata SDK compatibility
-
-export const dynamic = 'force-dynamic';
+export const config = {
+  runtime: 'edge',
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,16 +21,16 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const result = await pinata.pinFileToIPFS({
-      content: buffer,
-      options: {
-        pinataMetadata: {
-          name: file.name,
-        },
+    const result = await pinata.pinFileToIPFS(buffer, {
+      pinataMetadata: {
+        name: file.name,
+      },
+      pinataOptions: {
+        cidVersion: 0,
       },
     });
 
-    const url = `https://${process.env.NEXT_PUBLIC_GATEWAY_URL}/ipfs/${result.IpfsHash}`;
+    const url = `https://gateway.pinata.cloud/ipfs/${result.IpfsHash}`;
 
     return NextResponse.json({ url });
   } catch (error) {

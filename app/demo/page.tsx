@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useChat } from 'ai/react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,73 +11,127 @@ import { Upload, FileType, Download, Send } from 'lucide-react'
 import { Textarea } from "@/components/ui/textarea"
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
+import Image from 'next/image'
 
 export default function Demo() {
-  const { messages, input, handleInputChange, handleSubmit, append } = useChat()
+  const { messages, setMessages, input, handleInputChange } = useChat()
+
   const [files, setFiles] = useState<FileList | null>(null)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [organizedFiles, setOrganizedFiles] = useState<{ name: string; url: string }[]>([])
+  const [organizedFiles, setOrganizedFiles] = useState<{ name: string; url: string; type: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       setFiles(event.target.files)
+      handleUpload(event.target.files)
     }
   }
 
-  const handleUpload = async () => {
-    if (files) {
-      setProcessing(true)
-      setProgress(0)
+  const handleUpload = async (selectedFiles: FileList) => {
+    if (!selectedFiles.length) return;
+    
+    setProcessing(true);
+    setProgress(0);
+    
+    const uploadedFiles: { name: string; url: string; type: string }[] = [];
+    
+    try {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const url = await convertToDataURL(file);
+        
+        uploadedFiles.push({ 
+          name: file.name, 
+          url: url,
+          type: file.type
+        });
+        
+        setProgress(Math.round(((i + 1) / selectedFiles.length) * 100));
+      }
+      
+      setOrganizedFiles(uploadedFiles);
+    } catch (error) {
+      console.error('Error processing files:', error);
+    } finally {
+      setProcessing(false);
+    }
+    
+    console.log('All files processed:', uploadedFiles);
+  };
 
-      const uploadedFiles = Array.from(files).map(file => ({
-        name: file.name,
-        url: URL.createObjectURL(file)
-      }))
+  const convertToDataURL = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
-      // Simulate processing
-      for (let i = 0; i <= 100; i += 10) {
-        setProgress(i)
-        await new Promise(resolve => setTimeout(resolve, 500))
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const userMessage = {
+        id: Date.now().toString(),
+        role: 'user' as const,
+        content: input,
+        experimental_attachments: organizedFiles.length > 0 ? [{
+          name: organizedFiles[0].name,
+          url: organizedFiles[0].url,
+          contentType: organizedFiles[0].type
+        }] : undefined,
+      };
+
+      setMessages(prevMessages => [...prevMessages, userMessage]);
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(response.statusText);
       }
 
-      // Simulate AI organizing files
-      const organizedFileNames = uploadedFiles.map(file => ({
-        name: `organized_${file.name}`,
-        url: file.url
-      }))
+      const data = await response.json();
 
-      setOrganizedFiles(organizedFileNames)
-      setProcessing(false)
-      setFiles(null)
+      setMessages(prevMessages => [
+        ...prevMessages,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: data.content,
+        },
+      ]);
+
+      setOrganizedFiles([]);
+      setFiles(null);
       if (fileInputRef.current) {
-        fileInputRef.current.value = ''
+        fileInputRef.current.value = '';
       }
-
-      // Add message to chat
-      append({
-        role: 'assistant',
-        content: `I've organized ${files.length} screenshots for you. You can now download them.`
-      })
-    }
-  }
+    },
+    [input, organizedFiles, messages, setMessages]
+  );
 
   const handleDownload = async () => {
     const zip = new JSZip()
 
-    // Fetch each file and add it to the zip
     for (const file of organizedFiles) {
       const response = await fetch(file.url)
       const blob = await response.blob()
       zip.file(file.name, blob)
     }
 
-    // Generate the zip file
     const content = await zip.generateAsync({ type: 'blob' })
-
-    // Save the zip file
     saveAs(content, 'organized_screenshots.zip')
+    organizedFiles.forEach(file => URL.revokeObjectURL(file.url))
   }
 
   return (
@@ -90,9 +144,24 @@ export default function Demo() {
           <CardContent>
             <ScrollArea className="h-[400px] pr-4">
               {messages.map(m => (
-                <div key={m.id} className={`mb-4 p-3 rounded-lg ${m.role === 'user' ? 'bg-purple-100' : 'bg-pink-100'}`}>
-                  <p className="font-semibold">{m.role === 'user' ? 'You:' : 'AI:'}</p>
-                  <p>{m.content}</p>
+                <div key={m.id} className="whitespace-pre-wrap">
+                  {m.role === 'user' ? 'User: ' : 'AI: '}
+                  {m.content}
+                  <div>
+                    {m?.experimental_attachments
+                      ?.filter(attachment =>
+                        attachment?.contentType?.startsWith('image/'),
+                      )
+                      .map((attachment, index) => (
+                        <Image
+                          key={`${m.id}-${index}`}
+                          src={attachment.url}
+                          width={500}
+                          height={500}
+                          alt={attachment.name ?? `attachment-${index}`}
+                        />
+                      ))}
+                  </div>
                 </div>
               ))}
             </ScrollArea>
@@ -129,16 +198,8 @@ export default function Demo() {
               />
               <Upload className="text-purple-600" />
             </div>
-            <Button 
-              onClick={handleUpload} 
-              disabled={!files}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-            >
-              Upload
-            </Button>
           </CardContent>
         </Card>
-        
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-purple-800">Processing</CardTitle>
