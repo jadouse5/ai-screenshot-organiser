@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 
-export default function BentoScreenshotOrganizer() {
+export default function Demo() {
   const { messages, input, handleInputChange, handleSubmit, append } = useChat()
   const [files, setFiles] = useState<FileList | null>(null)
   const [processing, setProcessing] = useState(false)
