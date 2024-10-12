@@ -5,8 +5,6 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-// Allow streaming responses up to 30 seconds
-
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
@@ -14,14 +12,13 @@ export async function POST(req: Request) {
   
   const groqMessages = messages.map((message: Message) => {
     if (message.experimental_attachments && message.experimental_attachments.length > 0) {
-      // Only process the first image
       const firstAttachment = message.experimental_attachments[0];
       return {
         role: message.role,
         content: [
           { 
             type: 'text', 
-            text: message.content || "Please provide a concise name for this screenshot based on its content, followed by a brief description of what you see. Respond with only the name and description."
+            text: message.content || "Analyze this screenshot. Provide only a concise name for the file, with no additional details or description. Respond with only the name."
           },
           {
             type: 'image_url',
@@ -39,8 +36,9 @@ export async function POST(req: Request) {
   const completion = await groq.chat.completions.create({
     model: 'llama-3.2-11b-vision-preview',
     messages: groqMessages,
-    temperature: 0.5,
+    temperature: 0.2,
     stream: false,
+    max_tokens: 10,
   });
 
   return new Response(JSON.stringify(completion.choices[0].message), {

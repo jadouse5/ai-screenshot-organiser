@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import Image from 'next/image'
+import { FileUpload } from '@/components/ui/file-upload'
 
 export default function Demo() {
   const { messages, setMessages, input, handleInputChange, handleSubmit: handleChatSubmit } = useChat()
@@ -40,11 +41,26 @@ export default function Demo() {
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        const url = await convertToDataURL(file);
+        
+        // Create a FormData object to send the file
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // Send the file to your server endpoint that handles Pinata uploads
+        const response = await fetch('/api/files', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error('Upload failed');
+        }
+
+        const data = await response.json();
         
         uploadedFiles.push({ 
           name: file.name, 
-          url: url,
+          url: data.url, // URL returned from Pinata
           type: file.type
         });
         
@@ -53,7 +69,7 @@ export default function Demo() {
       
       setOrganizedFiles(uploadedFiles);
     } catch (error) {
-      console.error('Error processing files:', error);
+      console.error('Error uploading files:', error);
     } finally {
       setProcessing(false);
     }
@@ -76,7 +92,7 @@ export default function Demo() {
       const userMessage = {
         id: Date.now().toString(),
         role: 'user' as const,
-        content: "Please provide a concise name in this format: <name>.<extension> for this screenshot based on its content, followed by a brief description of what you see.",
+        content: "Analyze this screenshot. Provide only a concise name for the file, with no additional details or description. Respond with only the name no formatting {name_of_file}.",
         experimental_attachments: [{
           name: organizedFiles[0].name,
           url: organizedFiles[0].url,
@@ -97,7 +113,9 @@ export default function Demo() {
       });
 
       if (!response.ok) {
-        throw new Error(response.statusText);
+        const errorText = await response.text();
+        console.error('Server response:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
@@ -122,47 +140,50 @@ export default function Demo() {
   );
 
   const handleDownload = async () => {
-    const zip = new JSZip()
+    try {
+      const zip = new JSZip();
 
-    for (const file of organizedFiles) {
-      const response = await fetch(file.url)
-      const blob = await response.blob()
-      zip.file(file.name, blob)
+      for (const file of organizedFiles) {
+        if (!file.url) {
+          console.error(`URL manquante pour le fichier: ${file.name}`);
+          continue;
+        }
+
+        try {
+          const response = await fetch(file.url);
+          
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          
+          const arrayBuffer = await response.arrayBuffer();
+          zip.file(file.name, arrayBuffer, {binary: true});
+        } catch (fetchError) {
+          console.error(`Erreur lors du téléchargement de ${file.name}:`, fetchError);
+        }
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, "screenshots.zip");
+    } catch (error) {
+      console.error("Erreur lors de la création du fichier zip:", error);
     }
-
-    const content = await zip.generateAsync({ type: 'blob' })
-    saveAs(content, 'organized_screenshots.zip')
-    organizedFiles.forEach(file => URL.revokeObjectURL(file.url))
   }
-
   return (
-    <div className="container mx-auto p-4 min-h-screen flex items-center justify-center bg-gradient-to-r from-pink-100 to-purple-100">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-5xl">
-        <Card className="md:col-span-2 row-span-3">
+    <div className="min-h-screen bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900 dark:to-purple-900 p-4 sm:p-6 md:p-8">
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 row-span-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-2xl font-bold text-purple-800">Screenshot Organizer Chat</CardTitle>
+            <CardTitle className="text-2xl font-bold text-indigo-800 dark:text-indigo-200">Screenshot Organizer Chat</CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[400px] pr-4">
+            <ScrollArea className="h-[500px] pr-4">
               {messages.map(m => (
-                <div key={m.id} className="whitespace-pre-wrap">
-                  {m.role === 'user' ? 'User: ' : 'AI: '}
-                  {m.content}
-                  <div>
-                    {m?.experimental_attachments
-                      ?.filter(attachment =>
-                        attachment?.contentType?.startsWith('image/'),
-                      )
-                      .map((attachment, index) => (
-                        <Image
-                          key={`${m.id}-${index}`}
-                          src={attachment.url}
-                          width={500}
-                          height={500}
-                          alt={attachment.name ?? `attachment-${index}`}
-                        />
-                      ))}
-                  </div>
+                <div key={m.id} className={`mb-4 p-3 rounded-lg ${m.role === 'user' ? 'bg-indigo-100 dark:bg-indigo-800 ml-auto' : 'bg-purple-100 dark:bg-purple-800'} max-w-[80%]`}>
+                  <p className={`font-semibold mb-1 ${m.role === 'user' ? 'text-indigo-800 dark:text-indigo-200' : 'text-purple-800 dark:text-purple-200'}`}>
+                    {m.role === 'user' ? 'You' : 'AI'}
+                  </p>
+                  <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{m.content}</p>
                 </div>
               ))}
             </ScrollArea>
@@ -173,53 +194,48 @@ export default function Demo() {
                 value={input}
                 onChange={handleInputChange}
                 placeholder="Type your message..."
-                className="flex-grow"
+                className="flex-grow bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200"
               />
-              <Button type="submit" size="icon">
-                <Send className="h-4 w-4" />
+              <Button type="submit" size="icon" className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600">
+                <Send className="h-4 w-4 text-white" />
                 <span className="sr-only">Send</span>
               </Button>
             </form>
           </CardFooter>
         </Card>
-        
-        <Card>
+
+        <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold text-purple-800">Upload</CardTitle>
+            <CardTitle className="text-lg font-semibold text-indigo-800 dark:text-indigo-200">Upload Files</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <Input
-                type="file"
-                onChange={handleFileChange}
-                accept="image/*"
-                multiple
-                ref={fileInputRef}
-                className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pink-50 file:text-pink-700 hover:file:bg-pink-100"
-              />
-              <Upload className="text-purple-600" />
-            </div>
+          <CardContent>
+            <FileUpload onChange={(files) => {
+              if (files.length > 0) {
+                handleFileChange({ target: { files: files } } as unknown as React.ChangeEvent<HTMLInputElement>);
+              }
+            }} />
           </CardContent>
         </Card>
-        <Card>
+
+        <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold text-purple-800">Processing</CardTitle>
+            <CardTitle className="text-lg font-semibold text-indigo-800 dark:text-indigo-200">Processing</CardTitle>
           </CardHeader>
           <CardContent>
             {processing ? (
               <div className="space-y-2">
                 <Progress value={progress} className="w-full" />
-                <p className="text-sm text-pink-600">{progress}% complete</p>
+                <p className="text-sm text-indigo-600 dark:text-indigo-300">{progress}% complete</p>
               </div>
             ) : (
-              <p className="text-sm text-purple-600">No active processing</p>
+              <p className="text-sm text-purple-600 dark:text-purple-300">No active processing</p>
             )}
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold text-purple-800">Download</CardTitle>
+            <CardTitle className="text-lg font-semibold text-indigo-800 dark:text-indigo-200">Download</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {organizedFiles.length > 0 ? (
@@ -228,28 +244,28 @@ export default function Demo() {
                   <ul className="space-y-2">
                     {organizedFiles.map((file, index) => (
                       <li key={index} className="flex items-center space-x-2">
-                        <FileType className="text-pink-600 w-4 h-4" />
-                        <span className="text-sm text-purple-600">{file.name}</span>
+                        <FileType className="text-indigo-600 dark:text-indigo-400 w-4 h-4" />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{file.name}</span>
                       </li>
                     ))}
                   </ul>
                 </ScrollArea>
                 <Button 
                   onClick={handleDownload}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white"
                 >
                   Download Files
                 </Button>
                 <Button 
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)}
-                  className="w-full bg-pink-600 hover:bg-pink-700 text-white"
+                  className="w-full bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600 text-white"
                 >
                   <Edit className="mr-2 h-4 w-4" />
                   Rename Screenshot
                 </Button>
               </>
             ) : (
-              <p className="text-sm text-purple-600">No files to download</p>
+              <p className="text-sm text-purple-600 dark:text-purple-300">No files to download</p>
             )}
           </CardContent>
         </Card>
