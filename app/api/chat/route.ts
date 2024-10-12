@@ -19,7 +19,10 @@ export async function POST(req: Request) {
       return {
         role: message.role,
         content: [
-          { type: 'text', text: message.content },
+          { 
+            type: 'text', 
+            text: message.content || "Please provide a concise name for this screenshot based on its content, followed by a brief description of what you see. Respond with only the name and description."
+          },
           {
             type: 'image_url',
             image_url: { url: firstAttachment.url },

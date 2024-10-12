@@ -7,14 +7,14 @@ import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Upload, FileType, Download, Send } from 'lucide-react'
+import { Upload, FileType, Download, Send, Edit } from 'lucide-react'
 import { Textarea } from "@/components/ui/textarea"
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import Image from 'next/image'
 
 export default function Demo() {
-  const { messages, setMessages, input, handleInputChange } = useChat()
+  const { messages, setMessages, input, handleInputChange, handleSubmit: handleChatSubmit } = useChat()
 
   const [files, setFiles] = useState<FileList | null>(null)
   const [processing, setProcessing] = useState(false)
@@ -57,8 +57,6 @@ export default function Demo() {
     } finally {
       setProcessing(false);
     }
-    
-    console.log('All files processed:', uploadedFiles);
   };
 
   const convertToDataURL = (file: File): Promise<string> => {
@@ -73,15 +71,17 @@ export default function Demo() {
   const handleSubmit = useCallback(
     async (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
+      if (organizedFiles.length === 0) return;
+
       const userMessage = {
         id: Date.now().toString(),
         role: 'user' as const,
-        content: input,
-        experimental_attachments: organizedFiles.length > 0 ? [{
+        content: "Please provide a concise name in this format: <name>.<extension> for this screenshot based on its content, followed by a brief description of what you see.",
+        experimental_attachments: [{
           name: organizedFiles[0].name,
           url: organizedFiles[0].url,
           contentType: organizedFiles[0].type
-        }] : undefined,
+        }],
       };
 
       setMessages(prevMessages => [...prevMessages, userMessage]);
@@ -111,13 +111,14 @@ export default function Demo() {
         },
       ]);
 
-      setOrganizedFiles([]);
-      setFiles(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      // Update the file name with the AI's suggestion
+      const aiSuggestion = data.content.split('\n')[0].trim();
+      setOrganizedFiles(prevFiles => [
+        { ...prevFiles[0], name: `${aiSuggestion}.${prevFiles[0].name.split('.').pop()}` },
+        ...prevFiles.slice(1)
+      ]);
     },
-    [input, organizedFiles, messages, setMessages]
+    [organizedFiles, messages, setMessages]
   );
 
   const handleDownload = async () => {
@@ -167,7 +168,7 @@ export default function Demo() {
             </ScrollArea>
           </CardContent>
           <CardFooter>
-            <form onSubmit={handleSubmit} className="flex w-full items-center space-x-2">
+            <form onSubmit={handleChatSubmit} className="flex w-full items-center space-x-2">
               <Textarea
                 value={input}
                 onChange={handleInputChange}
@@ -238,6 +239,13 @@ export default function Demo() {
                   className="w-full bg-purple-600 hover:bg-purple-700 text-white"
                 >
                   Download Files
+                </Button>
+                <Button 
+                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)}
+                  className="w-full bg-pink-600 hover:bg-pink-700 text-white"
+                >
+                  <Edit className="mr-2 h-4 w-4" />
+                  Rename Screenshot
                 </Button>
               </>
             ) : (
