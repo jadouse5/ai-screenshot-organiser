@@ -1,9 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { pinata } from "@/utils/config";
 
-export const config = {
-  runtime: 'edge',
-};
+export const runtime = "edge";
 
 export async function POST(request: NextRequest) {
   try {
