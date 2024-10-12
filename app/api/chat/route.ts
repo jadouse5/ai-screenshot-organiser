@@ -1,4 +1,4 @@
-import { openai } from '@ai-sdk/openai';
+
 import { convertToCoreMessages, streamText } from 'ai';
 import { createOpenAI as createGroq } from '@ai-sdk/openai';
 
