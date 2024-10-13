@@ -13,6 +13,8 @@ import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import Image from 'next/image'
 import { FileUpload } from '@/components/ui/file-upload'
+import PinataSDK from '@pinata/sdk';
+import { pinata } from '@/utils/config'
 
 export default function Demo() {
   const { messages, setMessages, input, handleInputChange, handleSubmit: handleChatSubmit } = useChat()
@@ -20,8 +22,15 @@ export default function Demo() {
   const [files, setFiles] = useState<FileList | null>(null)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [organizedFiles, setOrganizedFiles] = useState<{ name: string; url: string; type: string }[]>([])
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [organizedFiles, setOrganizedFiles] = useState<{
+    ipfsHash: string;
+    contentType: string;
+    name: string;
+    url: string;
+    type: string;
+  }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isWaitingForAI, setIsWaitingForAI] = useState(false);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -36,17 +45,15 @@ export default function Demo() {
     setProcessing(true);
     setProgress(0);
     
-    const uploadedFiles: { name: string; url: string; type: string }[] = [];
+    const uploadedFiles: { name: string; url: string; type: string; ipfsHash: string }[] = [];
     
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
         
-        // Create a FormData object to send the file
         const formData = new FormData();
         formData.append('file', file);
 
-        // Send the file to your server endpoint that handles Pinata uploads
         const response = await fetch('/api/files', {
           method: 'POST',
           body: formData,
@@ -60,14 +67,18 @@ export default function Demo() {
         
         uploadedFiles.push({ 
           name: file.name, 
-          url: data.url, // URL returned from Pinata
-          type: file.type
+          url: data.url,
+          type: file.type,
+          ipfsHash: data.ipfsHash // Store the IPFS hash
         });
         
         setProgress(Math.round(((i + 1) / selectedFiles.length) * 100));
       }
-      
-      setOrganizedFiles(uploadedFiles);
+
+      setOrganizedFiles(uploadedFiles.map(file => ({
+        ...file,
+        contentType: file.type
+      })));
     } catch (error) {
       console.error('Error uploading files:', error);
     } finally {
@@ -89,6 +100,8 @@ export default function Demo() {
       e.preventDefault();
       if (organizedFiles.length === 0) return;
 
+      setIsWaitingForAI(true);
+
       const userMessage = {
         id: Date.now().toString(),
         role: 'user' as const,
@@ -102,39 +115,51 @@ export default function Demo() {
 
       setMessages(prevMessages => [...prevMessages, userMessage]);
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [...messages, userMessage],
-        }),
-      });
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: [...messages, userMessage],
+          }),
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Server response:', response.status, errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Server response:', response.status, errorText);
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        setMessages(prevMessages => [
+          ...prevMessages,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: data.content,
+          },
+        ]);
+
+        const aiSuggestion = data.content.trim();
+        setOrganizedFiles(prevFiles => {
+          const updatedFiles = [
+            { ...prevFiles[0], name: `${aiSuggestion}.${prevFiles[0].name.split('.').pop()}` },
+            ...prevFiles.slice(1)
+          ];
+          console.log('Updated organized files:', updatedFiles);
+          return updatedFiles;
+        });
+        const zip = new JSZip();
+        console.log('File renamed to:', `${aiSuggestion}.${organizedFiles[0].name.split('.').pop()}`);
+
+        setIsWaitingForAI(false);
+      } catch (error) {
+        console.error("Error getting AI suggestion:", error);
+        setIsWaitingForAI(false);
       }
-
-      const data = await response.json();
-
-      setMessages(prevMessages => [
-        ...prevMessages,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: data.content,
-        },
-      ]);
-
-      // Update the file name with the AI's suggestion
-      const aiSuggestion = data.content.split('\n')[0].trim();
-      setOrganizedFiles(prevFiles => [
-        { ...prevFiles[0], name: `${aiSuggestion}.${prevFiles[0].name.split('.').pop()}` },
-        ...prevFiles.slice(1)
-      ]);
     },
     [organizedFiles, messages, setMessages]
   );
@@ -147,12 +172,14 @@ export default function Demo() {
 
     try {
       const file = organizedFiles[0]; // Get the first (and only) file
-      if (!file.url) {
-        console.error(`Missing URL for file: ${file.name}`);
+      if (!file.ipfsHash) {
+        console.error(`Missing IPFS hash for file: ${file.name}`);
         return;
       }
 
-      const response = await fetch(file.url);
+      console.log('Attempting to download:', file);
+
+      const response = await fetch(`/api/download?ipfsHash=${file.ipfsHash}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -162,15 +189,19 @@ export default function Demo() {
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = url;
-      // Use the renamed file name
-      a.download = file.name;
+      a.download = file.name || 'downloaded_file';
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      console.log('File downloaded successfully');
     } catch (error) {
       console.error("Error downloading file:", error);
     }
   }
+
+  
   return (
     <div className="min-h-screen bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900 dark:to-purple-900 p-4 sm:p-6 md:p-8">
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -246,7 +277,7 @@ export default function Demo() {
                   <ul className="space-y-2">
                     {organizedFiles.map((file, index) => (
                       <li key={index} className="flex items-center space-x-2">
-                        <FileType className="text-indigo-600 dark:text-indigo-400 w-4 h-4" />
+                        <FileType className="text-indigo-600 dark:text-indigo-400 w-4 w-4" />
                         <span className="text-sm text-gray-700 dark:text-gray-300">{file.name}</span>
                       </li>
                     ))}
@@ -258,13 +289,19 @@ export default function Demo() {
                 >
                   Download Renamed File
                 </Button>
-                <Button 
-                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)}
-                  className="w-full bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600 text-white"
-                >
-                  <Edit className="mr-2 h-4 w-4" />
-                  Rename Screenshot
-                </Button>
+                {isWaitingForAI ? (
+                  <div className="flex justify-center items-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                  </div>
+                ) : (
+                  <Button 
+                    onClick={(e: React.MouseEvent<HTMLButtonElement>) => handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)}
+                    className="w-full bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600 text-white"
+                  >
+                    <Edit className="mr-2 h-4 w-4" />
+                    Rename Screenshot
+                  </Button>
+                )}
               </>
             ) : (
               <p className="text-sm text-purple-600 dark:text-purple-300">No files to download</p>

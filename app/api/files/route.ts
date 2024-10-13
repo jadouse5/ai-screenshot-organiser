@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       cid: upload.cid,
       expires: 3600,
     });
-    return NextResponse.json({ url }, { status: 200 });
+    return NextResponse.json({ url, ipfsHash: upload.cid }, { status: 200 });
   } catch (e) {
     console.log(e);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
