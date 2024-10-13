@@ -8,7 +8,7 @@ import Header from '@/components/Header';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Screenshot Organizer',
+  title: 'Pinata Shot',
   description: 'A SaaS app for organizing and analyzing screenshots',
 };
 

@@ -14,7 +14,7 @@ export default function Header() {
       <div className="container mx-auto flex justify-between items-center">
         <Link href="/" className="flex items-center">
           <Image src="/logo.png" alt="ScreenShot Organizer Logo" width={50} height={50} className="mr-2" />
-          <span className="text-xl font-bold">ScreenShot Organizer</span>
+          <span className="text-xl font-bold">Pinata Shot</span>
         </Link>
         <nav>
           <ul className="flex space-x-4">

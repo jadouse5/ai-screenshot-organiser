@@ -140,33 +140,35 @@ export default function Demo() {
   );
 
   const handleDownload = async () => {
+    if (organizedFiles.length === 0) {
+      console.error("No files to download");
+      return;
+    }
+
     try {
-      const zip = new JSZip();
-
-      for (const file of organizedFiles) {
-        if (!file.url) {
-          console.error(`URL manquante pour le fichier: ${file.name}`);
-          continue;
-        }
-
-        try {
-          const response = await fetch(file.url);
-          
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          
-          const arrayBuffer = await response.arrayBuffer();
-          zip.file(file.name, arrayBuffer, {binary: true});
-        } catch (fetchError) {
-          console.error(`Erreur lors du téléchargement de ${file.name}:`, fetchError);
-        }
+      const file = organizedFiles[0]; // Get the first (and only) file
+      if (!file.url) {
+        console.error(`Missing URL for file: ${file.name}`);
+        return;
       }
 
-      const content = await zip.generateAsync({ type: "blob" });
-      saveAs(content, "screenshots.zip");
+      const response = await fetch(file.url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      // Use the renamed file name
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
     } catch (error) {
-      console.error("Erreur lors de la création du fichier zip:", error);
+      console.error("Error downloading file:", error);
     }
   }
   return (
@@ -254,7 +256,7 @@ export default function Demo() {
                   onClick={handleDownload}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white"
                 >
-                  Download Files
+                  Download Renamed File
                 </Button>
                 <Button 
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)}

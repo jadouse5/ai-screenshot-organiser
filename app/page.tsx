@@ -19,7 +19,7 @@ export default function Home() {
       </div>
       <div className="z-10 text-center">
         <h1 className="mb-4 text-7xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-600 dark:text-white">
-          Screenshot Organizer
+          Pinata Shot
         </h1>
         <p className="mb-8 text-xl text-pink-500 dark:text-pink-200">
           Organize and analyze your screenshots with ease
@@ -29,10 +29,12 @@ export default function Home() {
             "[mask-image:radial-gradient(400px_circle_at_center,white,transparent)]",
           )}
         />
-        <ShinyButton>
-          <Link href="/demo">Get Started</Link>
-        </ShinyButton>
-      <Ripple className="opacity-75" />
+        <Link href="/demo">
+          <ShinyButton>
+            Get Started
+          </ShinyButton>
+        </Link>
+        <Ripple className="opacity-75" />
       </div>
     </div>
   );
